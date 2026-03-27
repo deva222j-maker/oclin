@@ -1,11 +1,9 @@
-
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import telebot
 import json
 import os
 import re
 from datetime import datetime
-from telebot.types import Update
 
 # ========== إعدادات البوت ==========
 BOT_TOKEN = "8699825523:AAGNlTsUFTAi1-PAQZXlcAmKIhyVlAkKLpo"
@@ -24,8 +22,8 @@ def load_posts():
         if os.path.exists(POSTS_FILE):
             with open(POSTS_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-    except:
-        pass
+    except Exception as e:
+        print(f"Error loading posts: {e}")
     return []
 
 def save_posts(posts):
@@ -33,8 +31,8 @@ def save_posts(posts):
     try:
         with open(POSTS_FILE, 'w', encoding='utf-8') as f:
             json.dump(posts, f, ensure_ascii=False, indent=2)
-    except:
-        pass
+    except Exception as e:
+        print(f"Error saving posts: {e}")
 
 def detect_platform(url):
     """تحديد المنصة من الرابط"""
@@ -63,24 +61,8 @@ def get_platform_emoji(platform):
     }
     return emojis.get(platform, '🔗')
 
-def add_post(url, platform):
-    """إضافة منشور جديد"""
-    posts = load_posts()
-    
-    post_data = {
-        'id': len(posts) + 1,
-        'url': url,
-        'platform': platform,
-        'created_at': datetime.now().isoformat(),
-        'title': get_title_from_url(url, platform)
-    }
-    
-    posts.insert(0, post_data)
-    save_posts(posts)
-    return post_data
-
-def get_title_from_url(url, platform):
-    """استخراج عنوان بسيط من الرابط"""
+def get_title_from_url(platform):
+    """استخراج عنوان بسيط من المنصة"""
     titles = {
         'youtube': '🎬 فيديو يوتيوب جديد',
         'twitter': '🐦 تغريدة جديدة',
@@ -90,6 +72,22 @@ def get_title_from_url(url, platform):
         'other': '🔗 رابط جديد'
     }
     return titles.get(platform, '🔗 رابط جديد')
+
+def add_post(url, platform):
+    """إضافة منشور جديد"""
+    posts = load_posts()
+    
+    post_data = {
+        'id': len(posts) + 1,
+        'url': url,
+        'platform': platform,
+        'created_at': datetime.now().isoformat(),
+        'title': get_title_from_url(platform)
+    }
+    
+    posts.insert(0, post_data)
+    save_posts(posts)
+    return post_data
 
 def delete_post_by_id(post_id):
     """حذف منشور حسب الرقم"""
@@ -155,10 +153,6 @@ def list_posts_command(message):
         text += f"   🆔 رقم: `{post['id']}` | 📅 {created}\n"
         text += f"   🔗 [الرابط]({post['url']})\n\n"
     
-    # إذا كان هناك أكثر من 30 منشور
-    if len(posts) > 30:
-        text += f"\n*و {len(posts) - 30} منشورات أخرى...*"
-    
     bot.reply_to(message, text, parse_mode='Markdown', disable_web_page_preview=True)
 
 @bot.message_handler(commands=['delete'])
@@ -176,7 +170,6 @@ def delete_post_command(message):
         
         post_id = int(parts[1])
         
-        # البحث عن المنشور للتأكد من وجوده
         posts = load_posts()
         post_exists = any(p['id'] == post_id for p in posts)
         
@@ -184,7 +177,6 @@ def delete_post_command(message):
             bot.reply_to(message, f"❌ *المنشور رقم {post_id} غير موجود*\n\nاستخدم `/lista` لرؤية المنشورات", parse_mode='Markdown')
             return
         
-        # حذف المنشور
         success = delete_post_by_id(post_id)
         
         if success:
@@ -229,7 +221,6 @@ def api_command(message):
         'admin_id': ADMIN_ID
     }
     
-    # حفظ الملف مؤقتاً
     temp_file = "posts_export.json"
     with open(temp_file, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -242,7 +233,6 @@ def api_command(message):
             parse_mode='Markdown'
         )
     
-    # حذف الملف المؤقت
     os.remove(temp_file)
 
 @bot.message_handler(func=lambda m: True)
@@ -286,15 +276,17 @@ def handle_url_message(message):
 @app.route('/')
 def index():
     """الصفحة الرئيسية"""
-    return '''
+    posts = load_posts()
+    return f"""
     <html>
         <head>
             <title>OSLN Bot - Post Manager</title>
             <style>
-                body { font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-                h1 { font-size: 48px; }
-                .status { background: rgba(255,255,255,0.2); padding: 20px; border-radius: 10px; margin: 20px auto; max-width: 500px; }
-                a { color: #ffd700; }
+                body {{ font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+                h1 {{ font-size: 48px; }}
+                .status {{ background: rgba(255,255,255,0.2); padding: 20px; border-radius: 10px; margin: 20px auto; max-width: 500px; }}
+                .count {{ font-size: 36px; font-weight: bold; color: #ffd700; }}
+                a {{ color: #ffd700; }}
             </style>
         </head>
         <body>
@@ -302,11 +294,13 @@ def index():
             <div class="status">
                 <h2>✅ البوت يعمل بنجاح</h2>
                 <p>بوت إدارة المنشورات شغال 24/7</p>
-                <p>📊 <a href="/posts">عرض المنشورات (API)</a></p>
+                <p>📊 عدد المنشورات: <span class="count">{len(posts)}</span></p>
+                <p>🔗 <a href="/posts">عرض المنشورات (API)</a></p>
+                <p>🤖 <a href="https://t.me/osln134bot">@osln134bot</a></p>
             </div>
         </body>
     </html>
-    '''
+    """
 
 @app.route('/posts')
 def get_posts():
